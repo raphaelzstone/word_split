@@ -1,14 +1,14 @@
 :root {
-  --bg: #0f1216;
-  --panel: #181d24;
-  --panel-2: #20262f;
-  --line: #2c333d;
-  --text: #e8edf2;
-  --muted: #8b97a5;
-  --accent: #5db075;
-  --accent-dim: #3f7a52;
-  --bad: #d56b6b;
-  --gold: #e8c45f;
+  --bg: #b8cab0;        /* medium-light sage — soothing backdrop */
+  --panel: #f3f6ee;     /* near-white pale-sage card */
+  --panel-2: #e6ecdd;   /* input wells */
+  --line: #c7d4bd;
+  --text: #232b22;
+  --muted: #5d6b56;
+  --accent: #4a8159;
+  --accent-dim: #3c6b49;
+  --bad: #c14f3c;
+  --gold: #a8731a;      /* deep amber — readable on light panels */
   --radius: 14px;
   --mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -238,7 +238,6 @@ body {
   border: 1px solid var(--line);
 }
 .chip.found { background: var(--accent-dim); border-color: var(--accent); color: #fff; }
-.chip.bonus { background: transparent; border-color: var(--gold); color: var(--gold); }
 .chip.missed { color: var(--bad); border-color: var(--bad); }
 .progress { text-align: center; color: var(--muted); font-size: 12px; margin-top: 10px; }
 
@@ -264,7 +263,7 @@ body {
 .primary-btn {
   background: var(--accent);
   border: none;
-  color: #0f1216;
+  color: #fff;
   font-weight: 700;
   padding: 12px 26px;
   border-radius: 10px;
@@ -281,15 +280,36 @@ body {
 .result-rows { list-style: none; padding: 0; margin: 0 auto 22px; max-width: 320px; }
 .result-rows li {
   display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 16px;
+  grid-template-columns: auto 1fr auto;
+  gap: 14px;
   align-items: center;
-  padding: 10px 4px;
+  padding: 12px 4px;
   border-bottom: 1px solid var(--line);
   font-variant-numeric: tabular-nums;
 }
-.result-rows .r-pts { color: var(--gold); font-weight: 700; }
-.result-rows .r-time { font-family: var(--mono); color: var(--muted); }
+.result-rows .r-num { font-size: 18px; }
+.result-rows .r-bar { display: flex; align-items: center; }
+.result-rows .r-pts { color: var(--gold); font-weight: 700; white-space: nowrap; }
+
+/* Red→yellow→green gradient bar showing how well a round went. The gradient
+   lives on the track; an overlay masks the unfilled right portion, so a low
+   fill reads red, a full fill reads green. ------------------------------- */
+.score-bar {
+  position: relative;
+  width: 100%;
+  height: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: linear-gradient(to right, #c14f3c 0%, #d99a3c 42%, #e8c45f 55%, #4a8159 100%);
+}
+.score-bar-fill {
+  position: absolute;
+  top: 0; bottom: 0; right: 0;
+  background: var(--panel-2);
+  transition: left .4s ease;
+}
+.r-x { color: var(--bad); font-size: 20px; font-weight: 800; }
 .reveal-block { color: var(--muted); font-size: 13px; margin-bottom: 22px; }
 .reveal-block .rv { font-family: var(--mono); color: var(--text); }
 .result-actions { display: flex; gap: 12px; justify-content: center; }

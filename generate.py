@@ -4,19 +4,40 @@ from collections import defaultdict
 
 ENABLE = "/tmp/enable1.txt"
 FREQ = "/tmp/count_1w.txt"
-OUT_DICT = "/Users/raphaelzstone/Documents/word_split/dictionary.js"
 OUT_PUZ = "/Users/raphaelzstone/Documents/word_split/puzzles.js"
 
-COMMON_N = 50000          # top-N frequency rank counts as "in use"
-MIN_LEN, MAX_LEN = 5, 9   # combos word lengths
-FORK_MIN, FORK_MAX = 5, 8 # fork word lengths
-COMBO_FILL_MIN, COMBO_FILL_MAX = 4, 10
-POOL_PER_LEN = 200        # cap per word-length for variety
+COMMON_N = 100000                # combos: top-N frequency rank counts as "in use"
+FORK_COMMON_N = 50000            # forks: tighter tier so both words stay common
+COMBO_MIN_LEN, COMBO_MAX_LEN = 5, 8   # combos word lengths
+FORK_MIN_LEN, FORK_MAX_LEN = 5, 6     # forks word lengths (kept easier)
+COMBO_FILL_MIN, COMBO_FILL_MAX = 3, 8
+POOL_SIZE = 600                  # cap each pool for variety
 SEED = 1234
 
 BLOCK = set("""cunt fuck fucks fucked shit shits piss pissed cock cocks dick dicks
 twat slut sluts whore whores turd fart farts boob boobs prick pricks
 penis vulva semen wanker bitch bitches""".split())
+
+# Curated jargon block: words that fall inside the 100k frequency tier but read
+# as technical / foreign / archaic rather than everyday. Removed from the
+# vocabulary entirely so they're never required answers (keeps the "every
+# formable word is a target" rule intact). Educated-everyday words (chattel,
+# kindle, flexor, cygnet, marinate...) are deliberately KEPT.
+JARGON = set("""
+sambo
+ricin indole cerium scandia malic mafic mesic thein plastid stoma meiotic
+luteal anoxia tinea vagal qualia operant prions
+continuo gamba
+dative locative catena caput exeunt centum viator domine ponent recept stich
+lapin bonnes beton manana casitas valuta fromage
+loess schist chert
+kersey halbert
+culex brome pipit vanda danio
+yantra devas hanuman
+midden childe leman colter sylva folia marron robbin genom biggin
+settlor optionee payors
+dewan diwan
+""".split())
 
 def load_words(path, lo, hi):
     out = set()
@@ -27,69 +48,70 @@ def load_words(path, lo, hi):
                 out.add(w)
     return out
 
-FULL = load_words(ENABLE, MIN_LEN, MAX_LEN) - BLOCK
+FULL = load_words(ENABLE, COMBO_MIN_LEN, COMBO_MAX_LEN) - BLOCK - JARGON
 
-# common = ENABLE intersect top-N frequency
+# freq rank for ENABLE words; COMMON tiers are intersections with top-N ranks
 freq_rank = {}
 with open(FREQ, encoding="utf-8", errors="ignore") as f:
     for i, line in enumerate(f):
         if i >= COMMON_N:
             break
         w = line.split()[0].lower()
-        freq_rank[w] = i
-COMMON = {w for w in FULL if w in freq_rank}
+        if w not in freq_rank:
+            freq_rank[w] = i
+COMMON = {w for w in FULL if w in freq_rank}                       # combos tier
+COMMON_FORK = {w for w in COMMON if freq_rank[w] < FORK_COMMON_N}  # forks tier
 
-print(f"FULL(5-9)={len(FULL)}  COMMON={len(COMMON)}")
+print(f"FULL({COMBO_MIN_LEN}-{COMBO_MAX_LEN})={len(FULL)}  "
+      f"COMMON={len(COMMON)}  COMMON_FORK={len(COMMON_FORK)}")
 
 rng = random.Random(SEED)
 
 # ---------------------------------------------------------------------------
-# COMBOS: frame = word with 2 adjacent letters blanked; 4-10 common fills.
+# COMBOS: frame = word with 2 adjacent letters blanked. A frame qualifies only
+# if EVERY real (FULL-dictionary) word that fits the blank is also a common
+# word, and there are 3-8 such fills. So every formable word is a common,
+# gettable target -- no obscure words and no "bonus" concept.
 # ---------------------------------------------------------------------------
-buckets = defaultdict(set)  # (prefix, i, suffix) -> set of 2-letter fills
+full_fills = defaultdict(set)    # (prefix, i, suffix) -> fills over FULL
+common_fills = defaultdict(set)  # (prefix, i, suffix) -> fills over COMMON
+for w in FULL:
+    for i in range(len(w) - 1):
+        full_fills[(w[:i], i, w[i+2:])].add(w[i:i+2])
 for w in COMMON:
     for i in range(len(w) - 1):
-        key = (w[:i], i, w[i+2:])
-        buckets[key].add(w[i:i+2])
-
-combos_by_len = defaultdict(list)
-for (pre, i, suf), fills in buckets.items():
-    if COMBO_FILL_MIN <= len(fills) <= COMBO_FILL_MAX:
-        wl = len(pre) + 2 + len(suf)
-        frame = pre + "__" + suf
-        combos_by_len[wl].append({"frame": frame, "answers": sorted(fills)})
+        common_fills[(w[:i], i, w[i+2:])].add(w[i:i+2])
 
 COMBOS = []
-for wl in sorted(combos_by_len):
-    lst = combos_by_len[wl]
-    rng.shuffle(lst)
-    COMBOS.extend(lst[:POOL_PER_LEN])
+for key, ffills in full_fills.items():
+    if not (COMBO_FILL_MIN <= len(ffills) <= COMBO_FILL_MAX):
+        continue
+    if common_fills[key] != ffills:   # zero obscure: every fill is common
+        continue
+    pre, i, suf = key
+    COMBOS.append({"frame": pre + "__" + suf, "answers": sorted(ffills)})
 rng.shuffle(COMBOS)
-print(f"COMBOS pool={len(COMBOS)} by len=" +
-      ", ".join(f"{k}:{min(len(v),POOL_PER_LEN)}" for k, v in sorted(combos_by_len.items())))
+COMBOS = COMBOS[:POOL_SIZE]
+three = sum(1 for c in COMBOS if len(c["answers"]) == 3)
+print(f"COMBOS pool={len(COMBOS)}  (3-fill={three}, 4+fill={len(COMBOS)-three})")
 
 # ---------------------------------------------------------------------------
-# FORKS: two common words sharing all but one adjacent 2-letter split, with a
-# UNIQUE shared-letter solution verified against the FULL dictionary.
+# FORKS: two common words (same length, 5-6 letters) sharing all but one
+# adjacent 2-letter split, with a UNIQUE shared-letter solution verified
+# against the FULL dictionary.
 # ---------------------------------------------------------------------------
-# For each (len, i): pair -> set of remainders (over FULL), and common pairs per remainder.
 full_pair_rems = defaultdict(lambda: defaultdict(set))   # (L,i) -> pair -> {rem}
 common_rem_pairs = defaultdict(lambda: defaultdict(set))  # (L,i) -> rem -> {pair}
 for w in FULL:
-    L = len(w)
-    if not (FORK_MIN <= L <= FORK_MAX):
+    for i in range(len(w) - 1):
+        full_pair_rems[(len(w), i)][w[i:i+2]].add(w[:i] + w[i+2:])
+for w in COMMON_FORK:
+    if not (FORK_MIN_LEN <= len(w) <= FORK_MAX_LEN):
         continue
-    for i in range(L - 1):
-        rem = w[:i] + w[i+2:]
-        full_pair_rems[(L, i)][w[i:i+2]].add(rem)
-for w in COMMON:
-    L = len(w)
-    if not (FORK_MIN <= L <= FORK_MAX):
-        continue
-    for i in range(L - 1):
-        common_rem_pairs[(L, i)][w[:i] + w[i+2:]].add(w[i:i+2])
+    for i in range(len(w) - 1):
+        common_rem_pairs[(len(w), i)][w[:i] + w[i+2:]].add(w[i:i+2])
 
-forks_by_len = defaultdict(list)
+FORKS = []
 seen = set()
 for (L, i), rem_pairs in common_rem_pairs.items():
     pr = full_pair_rems[(L, i)]
@@ -109,42 +131,30 @@ for (L, i), rem_pairs in common_rem_pairs.items():
                     if sig in seen:
                         continue
                     seen.add(sig)
-                    forks_by_len[L].append(
+                    FORKS.append(
                         {"word1": w1.upper(), "word2": w2.upper(), "splitIndex": i})
-
-FORKS = []
-for L in sorted(forks_by_len):
-    lst = forks_by_len[L]
-    rng.shuffle(lst)
-    FORKS.extend(lst[:POOL_PER_LEN])
 rng.shuffle(FORKS)
-print(f"FORKS pool={len(FORKS)} by len=" +
-      ", ".join(f"{k}:{min(len(v),POOL_PER_LEN)}" for k, v in sorted(forks_by_len.items())))
+FORKS = FORKS[:POOL_SIZE]
+print(f"FORKS pool={len(FORKS)}")
 
 print("\nSample COMBOS:")
-for c in COMBOS[:6]:
-    print(f"  {c['frame']:>11}  ({len(c['answers'])})  {' '.join(c['answers'])}")
+for c in COMBOS[:10]:
+    print(f"  {c['frame']:>9}  ({len(c['answers'])})  {' '.join(c['answers'])}")
 print("Sample FORKS:")
 for fk in FORKS[:8]:
     print(f"  {fk['word1']} / {fk['word2']}  split@{fk['splitIndex']}")
 
 # ---------------------------------------------------------------------------
-# Write runtime files
+# Write runtime file
 # ---------------------------------------------------------------------------
-with open(OUT_DICT, "w") as f:
-    f.write("// Auto-generated. Full ENABLE dictionary (public-domain, Scrabble-grade,\n")
-    f.write("// no proper nouns), lengths 5-9. Used to accept any real word typed in\n")
-    f.write("// Combos as a bonus. Puzzles themselves are pre-verified in puzzles.js.\n")
-    f.write("const WORDS = new Set(" + json.dumps(sorted(FULL)) + ");\n")
-
 with open(OUT_PUZ, "w") as f:
     f.write("// Auto-generated, pre-verified daily puzzle pools.\n")
-    f.write("// COMBOS_POOL: frames (5-9 letter words, 2 adjacent blanks) with 4-10\n")
-    f.write("//   in-use fills. FORKS_POOL: word pairs sharing all but one adjacent\n")
-    f.write("//   2-letter split, each with a UNIQUE solution verified vs the full dict.\n")
+    f.write("// COMBOS_POOL: 5-8 letter frames with 2 adjacent blanks where every real\n")
+    f.write("//   word that fits is a common target (3-8 fills) -- no bonus words.\n")
+    f.write("// FORKS_POOL: 5-6 letter word pairs sharing all but one adjacent 2-letter\n")
+    f.write("//   split, each with a UNIQUE solution verified vs the full dictionary.\n")
     f.write("const COMBOS_POOL = " + json.dumps(COMBOS, separators=(",", ":")) + ";\n")
     f.write("const FORKS_POOL = " + json.dumps(FORKS, separators=(",", ":")) + ";\n")
 
 import os
-print(f"\ndictionary.js: {os.path.getsize(OUT_DICT)//1024} KB")
-print(f"puzzles.js:    {os.path.getsize(OUT_PUZ)//1024} KB")
+print(f"\npuzzles.js: {os.path.getsize(OUT_PUZ)//1024} KB")
