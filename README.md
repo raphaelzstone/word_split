@@ -1,9 +1,10 @@
 # Word Split
 
 A daily word game inspired by the *Split Decisions* puzzles from Games Magazine.
-Two independent daily games; each plays **2 rounds one after another**. The set
-is the same for everyone each day. Combos use **5–8 letter** words; Forks use
-**5–6 letter** words.
+Two independent daily games played one round after another. The set is the same
+for everyone each day. **Combos** is **3 rounds** of 5–8 letter words; **Forks**
+is **2 rounds** of 5–6 letter words. Each round's answers are revealed right
+after you play it (and again at the end).
 
 ## Modes
 
@@ -18,12 +19,15 @@ is the same for everyone each day. Combos use **5–8 letter** words; Forks use
 
 ## Scoring
 
-Each game is out of **1000** — two rounds worth **500** each.
+Rounds are worth **500** each: Combos tops out at **1500** (3 rounds), Forks at
+**1000** (2 rounds).
 
-- **Combos** — a 1:30 limit (not time-scored). Each fill is worth
-  `floor(500 / total)`; completing the set pays the rounding remainder, so a
-  7-fill frame accrues `71+71+71+71+71+71+74 = 500`. A wrong guess costs
-  **2 seconds**.
+- **Combos** — a 1:30 round, time-adjusted. The clock costs up to **100**
+  points (nothing in the first **0:15**, ramping to the full −100 over the
+  middle minute, then flat for the last **0:15**); the remaining value is then
+  scaled by the share of fills found: `score = (500 − time) × found/total`. So
+  all fills in the first 0:15 → 500; all in the last 0:15 → 400; 3 of 4 in the
+  last 0:15 → 300. A wrong guess costs **2 seconds**.
 - **Forks** — fully time-based over a 2:00 round. The first **0:15** are free
   (**500**); points then slide down over the next **1:30** to a floor of
   **200**, where they stay for the final **0:15**. Miss it → 0. Wrong guesses
@@ -64,5 +68,6 @@ shipping. The generator (`generate.py`) needs two inputs:
 
 Run it to overwrite `puzzles.js`. Tunables at the top: `COMMON_N` (combos
 vocabulary tier) and `FORK_COMMON_N` (a tighter tier for Forks), the per-mode
-length bounds, the combo fill-count range, `JARGON` (a curated block of
-technical/foreign words), and pool size.
+length bounds, the combo fill-count range, `JARGON` (curated technical words)
+and `FOREIGN` (curated non-English words, derived with the `wordfreq` library
+but baked in so generation needs no extra dependency), and pool size.

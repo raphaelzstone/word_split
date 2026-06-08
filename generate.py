@@ -11,7 +11,6 @@ FORK_COMMON_N = 50000            # forks: tighter tier so both words stay common
 COMBO_MIN_LEN, COMBO_MAX_LEN = 5, 8   # combos word lengths
 FORK_MIN_LEN, FORK_MAX_LEN = 5, 6     # forks word lengths (kept easier)
 COMBO_FILL_MIN, COMBO_FILL_MAX = 3, 8
-POOL_SIZE = 600                  # cap each pool for variety
 SEED = 1234
 
 BLOCK = set("""cunt fuck fucks fucked shit shits piss pissed cock cocks dick dicks
@@ -39,6 +38,19 @@ settlor optionee payors
 dewan diwan
 """.split())
 
+# Words that are primarily from other languages -- valid Scrabble entries that
+# leak in via proper nouns / loanwords but aren't really English and aren't
+# gettable. Curated with the help of the `wordfreq` library (comparing English
+# vs es/fr/it/de/pt/nl frequency); baked in here so generation needs no extra
+# dependency. Naturalized loanwords an English speaker knows (siesta, portico,
+# entree, timbre, tilde...) are deliberately KEPT.
+FOREIGN = set("""
+sucre avion comte hombre madre padre casas campo campos barrios playas
+aider aviso ballons barbe boite bombe bouton carnet cesta conto droits duomo
+evite glace hosen interne leben libri livre momento morgen mouton nieve panier
+projet quinte reclame ridder selva sempre taille tasse utiliser visiter
+""".split())
+
 def load_words(path, lo, hi):
     out = set()
     with open(path, encoding="utf-8", errors="ignore") as f:
@@ -48,7 +60,7 @@ def load_words(path, lo, hi):
                 out.add(w)
     return out
 
-FULL = load_words(ENABLE, COMBO_MIN_LEN, COMBO_MAX_LEN) - BLOCK - JARGON
+FULL = load_words(ENABLE, COMBO_MIN_LEN, COMBO_MAX_LEN) - BLOCK - JARGON - FOREIGN
 
 # freq rank for ENABLE words; COMMON tiers are intersections with top-N ranks
 freq_rank = {}
@@ -88,10 +100,13 @@ for key, ffills in full_fills.items():
         continue
     if common_fills[key] != ffills:   # zero obscure: every fill is common
         continue
+    # skip "too easy" frames where the fills vary in only one position (e.g.
+    # r__fle = af/if/uf, or profil__ = ed/er/es) -- just one letter changes.
+    if len({f[0] for f in ffills}) == 1 or len({f[1] for f in ffills}) == 1:
+        continue
     pre, i, suf = key
     COMBOS.append({"frame": pre + "__" + suf, "answers": sorted(ffills)})
 rng.shuffle(COMBOS)
-COMBOS = COMBOS[:POOL_SIZE]
 three = sum(1 for c in COMBOS if len(c["answers"]) == 3)
 print(f"COMBOS pool={len(COMBOS)}  (3-fill={three}, 4+fill={len(COMBOS)-three})")
 
@@ -134,7 +149,6 @@ for (L, i), rem_pairs in common_rem_pairs.items():
                     FORKS.append(
                         {"word1": w1.upper(), "word2": w2.upper(), "splitIndex": i})
 rng.shuffle(FORKS)
-FORKS = FORKS[:POOL_SIZE]
 print(f"FORKS pool={len(FORKS)}")
 
 print("\nSample COMBOS:")

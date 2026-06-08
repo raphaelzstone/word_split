@@ -145,6 +145,9 @@ body {
 .inter-mark.bad { color: var(--bad); }
 .inter-points { font-size: 48px; font-weight: 800; color: var(--gold); font-variant-numeric: tabular-nums; }
 .inter-sub { color: var(--muted); font-size: 14px; margin-top: -6px; }
+.inter-reveal { text-align: center; }
+.inter-reveal .found-list { margin-top: 0; max-width: 360px; }
+.inter-reveal .rv { font-family: var(--mono); font-size: 20px; letter-spacing: 1px; color: var(--text); }
 .interstitial .primary-btn { margin-top: 8px; }
 
 /* Puzzles ----------------------------------------------------------------- */

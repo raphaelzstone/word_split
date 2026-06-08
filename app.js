@@ -3,50 +3,62 @@
 /* ===========================================================================
  * Word Split — daily word puzzles (vanilla JS)
  *
- * Two independent daily games, each 2 rounds (500 pts each, 1000 total):
- *   combos — find every 2-letter fill for a 5-8 letter frame (3-8 fills). Every
- *            real word that fits is a target; each fill pays floor(500/total)
- *            with the last one taking the remainder. 1:30 limit (not time-
- *            scored); a wrong guess costs 2 seconds.
+ * Two independent daily games; rounds are worth 500 each. Combos: 3 rounds
+ * (1:30 each, 1500 max). Forks: 2 rounds (2:00 each, 1000 max).
+ *   combos — find every 2-letter fill for a 5-8 letter frame (3-8 fills).
+ *            Every real word that fits is a target. Score is time-adjusted
+ *            completion: the clock costs up to 100 (0 in the first 0:15, full
+ *            by the last 0:15), then the remaining value is scaled by the share
+ *            of fills found. 1:30 round; a wrong guess costs 2s.
  *   forks  — given a split, type the shared letters (one unique solution).
  *            Fully time-based over a 2:00 round: first 0:15 free (500), then a
  *            1:30 slide down to 200, then the final 0:15 flat at 200. Wrong
  *            guesses are free.
+ * After each round its answers are revealed on the interstitial.
  *
  * Puzzles are date-seeded picks from pre-verified pools (puzzles.js), so
  * everyone gets the same fresh set each day. Results persist per day and copy
  * as a spoiler-free summary (points + times only — never the words).
  * ========================================================================= */
 
-const ROUNDS_PER_DAY = 2;
 const WRONG_PENALTY_SEC = 2;     // a wrong guess costs this much time
 
-const COMBO_LIMIT_SEC = 90;      // 1:30 limit, not time-scored
+const COMBO_LIMIT_SEC = 90;      // 1:30 round
+const COMBO_FREE_SEC = 15;       // no time penalty within the first 0:15
+const COMBO_PENALTY_SEC = 75;    // full time penalty by here (last 0:15), i.e. -100
+const COMBO_TIME_PENALTY = 100;  // most points the clock can cost (over the middle minute)
 const FORK_LIMIT_SEC = 120;      // 2:00 round, fully time-scored
 const FORK_FREE_SEC = 15;        // full points within the first 0:15
 const FORK_FLOOR_SEC = 105;      // 200-pt floor reached here (last 0:15 flat)
+const FORK_FLOOR_POINTS = 200;   // forks never drops below this once solved
 
-const ROUND_POINTS = 500;        // each round is worth up to this
-
+// Rounds are worth 500 each. Combos: 3 rounds (1500 max). Forks: 2 rounds (1000 max).
 const CONFIG = {
-  combos: { name: "Combos", pool: COMBOS_POOL, limit: COMBO_LIMIT_SEC },
-  forks: { name: "Forks", pool: FORKS_POOL, limit: FORK_LIMIT_SEC },
+  combos: { name: "Combos", pool: COMBOS_POOL, limit: COMBO_LIMIT_SEC, rounds: 3, points: 500 },
+  forks: { name: "Forks", pool: FORKS_POOL, limit: FORK_LIMIT_SEC, rounds: 2, points: 500 },
 };
 
 // --- Scoring ----------------------------------------------------------------
-// Forks: solved within 0:15 -> 500; slide to 200 by 1:45; flat 200 to 2:00.
-function forkScore(solved, sec) {
+// Forks: solved within 0:15 -> full; slide to the 200 floor by 1:45; flat after.
+function forkScore(solved, sec, full) {
   if (!solved) return 0;
-  if (sec <= FORK_FREE_SEC) return ROUND_POINTS;
-  if (sec >= FORK_FLOOR_SEC) return 200;
+  if (sec <= FORK_FREE_SEC) return full;
+  if (sec >= FORK_FLOOR_SEC) return FORK_FLOOR_POINTS;
   return Math.round(
-    ROUND_POINTS - (ROUND_POINTS - 200) * (sec - FORK_FREE_SEC) / (FORK_FLOOR_SEC - FORK_FREE_SEC));
+    full - (full - FORK_FLOOR_POINTS) * (sec - FORK_FREE_SEC) / (FORK_FLOOR_SEC - FORK_FREE_SEC));
 }
-// Combos: pure completion. Each fill is worth floor(500/total); completing the
-// set pays the rounding remainder, so 7 fills accrue 71+71+71+71+71+71+74=500.
-function comboScore(found, total) {
-  if (found >= total) return ROUND_POINTS;
-  return found * Math.floor(ROUND_POINTS / total);
+// Combos: time-adjusted completion. The clock costs up to 100 points, ramping
+// from 0 at 0:15 to 100 over the middle minute (to 1:15), then flat. Whatever
+// the round is worth after that is scaled by the share of fills found. So all
+// fills in the first 0:15 -> 500; all in the last 0:15 -> 400; 3 of 4 in the
+// last 0:15 -> 400 * 3/4 = 300.
+function comboTimePenalty(sec) {
+  if (sec <= COMBO_FREE_SEC) return 0;
+  if (sec >= COMBO_PENALTY_SEC) return COMBO_TIME_PENALTY;
+  return COMBO_TIME_PENALTY * (sec - COMBO_FREE_SEC) / (COMBO_PENALTY_SEC - COMBO_FREE_SEC);
+}
+function comboScore(found, total, full, sec) {
+  return Math.round((full - comboTimePenalty(sec)) * (found / total));
 }
 
 // --- Seeded RNG (mulberry32) ------------------------------------------------
@@ -112,13 +124,13 @@ function saveResult(mode, result) {
 }
 
 // --- Build today's puzzles --------------------------------------------------
-// Combos: seeded pick of 2 frames, guaranteeing at least one has 4+ fills so a
-// day is never two trivial 3-fill frames.
-function pickCombos(pool, seedStr) {
+// Combos: seeded pick of N frames, guaranteeing at least one has 4+ fills so a
+// day is never all trivial 3-fill frames.
+function pickCombos(pool, seedStr, n) {
   const order = seededPick(pool, pool.length, seedStr);
-  const picks = order.slice(0, ROUNDS_PER_DAY);
+  const picks = order.slice(0, n);
   if (picks.every((p) => p.answers.length === 3)) {
-    const alt = order.slice(ROUNDS_PER_DAY).find((p) => p.answers.length >= 4);
+    const alt = order.slice(n).find((p) => p.answers.length >= 4);
     if (alt) picks[picks.length - 1] = alt;
   }
   return picks;
@@ -126,7 +138,7 @@ function pickCombos(pool, seedStr) {
 
 function buildPuzzles(mode) {
   if (mode === "combos") {
-    return pickCombos(CONFIG.combos.pool, `combos:${dateKey()}`).map((p) => {
+    return pickCombos(CONFIG.combos.pool, `combos:${dateKey()}`, CONFIG.combos.rounds).map((p) => {
       const [pre, suf] = p.frame.split("__");
       return {
         type: "combos",
@@ -136,7 +148,7 @@ function buildPuzzles(mode) {
       };
     });
   }
-  const picks = seededPick(CONFIG.forks.pool, ROUNDS_PER_DAY, `forks:${dateKey()}`);
+  const picks = seededPick(CONFIG.forks.pool, CONFIG.forks.rounds, `forks:${dateKey()}`);
   return picks.map((p) => {
     const i = p.splitIndex;
     const w1 = p.word1.toUpperCase(), w2 = p.word2.toUpperCase();
@@ -167,7 +179,7 @@ function startGame(mode) {
     idx: 0, results: [], puzzleStart: 0, penaltyMs: 0, tickId: null,
   };
   $("#rules-text").textContent = mode === "combos"
-    ? "Type every two-letter fill that makes a real word. 1:30 per round · wrong guess −2s."
+    ? "Type every two-letter fill that makes a real word. Faster = more points · wrong guess −2s."
     : "Type the shared letters so both stacked letters make a real word. Faster = more points.";
   showView("game");
   showPuzzle(0);
@@ -177,7 +189,7 @@ function showPuzzle(i) {
   game.idx = i;
   game.penaltyMs = 0;
   const p = game.puzzles[i];
-  $("#progress-pill").textContent = `Round ${i + 1} of ${ROUNDS_PER_DAY}`;
+  $("#progress-pill").textContent = `Round ${i + 1} of ${game.cfg.rounds}`;
   $("#skip-btn").hidden = false;
   $("#skip-btn").textContent = "Skip round";
 
@@ -235,17 +247,29 @@ function endPuzzle() {
   if (p.type === "combos") {
     const found = p.found.length, total = p.answers.length;
     const solved = found === total;
-    result = { type: "combos", solved, found, total, sec, points: comboScore(found, total) };
+    result = { type: "combos", solved, found, total, sec, points: comboScore(found, total, game.cfg.points, sec) };
   } else {
-    result = { type: "forks", solved: p.solved, sec, points: forkScore(p.solved, sec) };
+    result = { type: "forks", solved: p.solved, sec, points: forkScore(p.solved, sec, game.cfg.points) };
   }
   game.results.push(result);
   showInterstitial(result);
 }
 
+// The day's answers for one puzzle, shown on its interstitial. Combos lists
+// each full word (green if you found it, red if missed); Forks shows the pair.
+function revealAnswers(p) {
+  if (p.type === "combos") {
+    const chips = p.answers
+      .map((a) => `<span class="chip ${p.found.includes(a) ? "found" : "missed"}">${p.pre}${a}${p.suf}</span>`)
+      .join("");
+    return `<div class="inter-reveal"><div class="found-list">${chips}</div></div>`;
+  }
+  return `<div class="inter-reveal"><span class="rv">${p.words[0]} / ${p.words[1]}</span></div>`;
+}
+
 function showInterstitial(result) {
   $("#skip-btn").hidden = true;
-  const last = game.idx === ROUNDS_PER_DAY - 1;
+  const last = game.idx === game.cfg.rounds - 1;
   const head = result.solved
     ? `<div class="inter-mark good">Solved</div>`
     : result.points > 0
@@ -259,6 +283,7 @@ function showInterstitial(result) {
       ${head}
       <div class="inter-points">+${result.points}</div>
       ${detail}
+      ${revealAnswers(game.puzzles[game.idx])}
       <button id="next-btn" class="primary-btn">${last ? "See results" : "Next round →"}</button>
     </div>`;
   $("#next-btn").addEventListener("click", () => {
@@ -416,9 +441,9 @@ function scoreBar(frac) {
   return `<div class="score-bar"><div class="score-bar-fill" style="left:${pct}%"></div></div>`;
 }
 
-function resultBar(r) {
-  if (r.type === "combos") return scoreBar(r.found / r.total);
-  return r.solved ? scoreBar(r.points / ROUND_POINTS) : `<span class="r-x">✕</span>`;
+function resultBar(r, full) {
+  if (r.type === "combos") return scoreBar(r.points / full);
+  return r.solved ? scoreBar(r.points / full) : `<span class="r-x">✕</span>`;
 }
 
 function renderResults(mode, result, replay) {
@@ -431,7 +456,7 @@ function renderResults(mode, result, replay) {
   $("#result-rows").innerHTML = result.rows
     .map((r, i) =>
       `<li><span class="r-num">${NUM[i]}</span>` +
-      `<span class="r-bar">${resultBar(r)}</span>` +
+      `<span class="r-bar">${resultBar(r, cfg.points)}</span>` +
       `<span class="r-pts">${r.points} pts</span></li>`)
     .join("");
 
