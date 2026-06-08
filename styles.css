@@ -94,16 +94,19 @@ body {
 .stack {
   display: inline-flex;
   flex-direction: column;
+  align-items: center;
   font-family: var(--mono);
   font-weight: 700;
-  line-height: 1.05;
+  line-height: 1.1;
+  letter-spacing: 0;             /* don't inherit the frame's 2px tracking */
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 4px 8px;
+  padding: 6px 12px;             /* roomier so wide letters (W, M) don't clip */
 }
-.stack span:first-child { border-bottom: 1px solid var(--line); padding-bottom: 2px; }
-.stack span:last-child { padding-top: 2px; color: var(--muted); }
+.stack span { display: block; min-width: 2.2ch; text-align: center; }
+.stack span:first-child { border-bottom: 1px solid var(--line); padding-bottom: 3px; }
+.stack span:last-child { padding-top: 3px; color: var(--muted); }
 .mode-split .stack { font-size: 22px; }
 
 /* Game bar (progress + countdown) ---------------------------------------- */
@@ -187,11 +190,12 @@ body {
 }
 .frame .fixed { width: 26px; text-align: center; }
 .cell {
-  width: 38px;
-  height: 48px;
+  width: 44px;
+  height: 52px;
   text-align: center;
   font-family: var(--mono);
   font-size: 26px;
+  letter-spacing: 0;             /* don't inherit the frame's 2px tracking */
   text-transform: uppercase;
   color: var(--text);
   background: var(--panel-2);
@@ -322,8 +326,8 @@ body {
 /* Narrow screens: shrink the letter grid so long words don't overflow ---- */
 @media (max-width: 430px) {
   .frame { gap: 5px; font-size: 24px; }
-  .cell { width: 32px; height: 42px; font-size: 22px; }
-  .stack { padding: 3px 6px; }
+  .cell { width: 38px; height: 46px; font-size: 22px; }
+  .stack { padding: 5px 10px; }
   .mode-split .stack, .frame .stack { font-size: 18px; }
   .countdown { font-size: 26px; }
 }
