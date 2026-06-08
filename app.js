@@ -471,7 +471,7 @@ function renderResults(mode, result, replay) {
 
 function buildShareText(mode, result) {
   const cfg = CONFIG[mode];
-  const lines = [`Word Split — ${cfg.name}`, result.date, `⭐ ${result.score} / 1000`];
+  const lines = [`Word Split — ${cfg.name}`, result.date, `⭐ ${result.score} / ${cfg.rounds * cfg.points}`];
   result.rows.forEach((r, i) => {
     const mark = r.type === "combos"
       ? `${r.found}/${r.total}`
@@ -502,7 +502,8 @@ function refreshMenu() {
   $("#date-label").textContent = dateKey();
   for (const mode of ["combos", "forks"]) {
     const res = loadResult(mode);
-    $(`#status-${mode}`).textContent = res ? `Played today · ${res.score} / 1000` : "Not played today";
+    const max = CONFIG[mode].rounds * CONFIG[mode].points;
+    $(`#status-${mode}`).textContent = res ? `Played today · ${res.score} / ${max}` : "Not played today";
   }
 }
 
