@@ -78,54 +78,18 @@
     </section>
   </main>
 
-  <!-- Update toast: shown when a new service-worker version is waiting --->
-  <div id="update-toast" class="update-toast" hidden>
-    <span>New version available</span>
-    <button id="update-btn">Reload</button>
-  </div>
-
   <script src="puzzles.js"></script>
   <script src="birds.js"></script>
   <script src="firebase-config.js"></script>
   <script type="module" src="leaderboard.js"></script>
   <script src="app.js"></script>
   <script>
-    /* Register the service worker (PWA install + offline shell). When a new
-     * version has finished installing AND there's an existing controller (so
-     * it's a real update, not a first install), surface a small "Reload" toast
-     * — clicking it tells the new SW to skip-waiting, which fires
-     * `controllerchange` and reloads the page on the new build. */
+    /* Register the service worker (PWA install + offline shell). New versions
+     * install on the next visit and take over silently — players pick up the
+     * fresh code the next time they open the app. */
     if ("serviceWorker" in navigator) {
-      window.addEventListener("load", async () => {
-        const reg = await navigator.serviceWorker.register("sw.js").catch(() => null);
-        if (!reg) return;
-
-        const showToast = (worker) => {
-          const toast = document.getElementById("update-toast");
-          toast.hidden = false;
-          document.getElementById("update-btn").onclick = () =>
-            worker.postMessage({ type: "SKIP_WAITING" });
-        };
-        const trackInstalling = (worker) => {
-          if (!worker) return;
-          worker.addEventListener("statechange", () => {
-            if (worker.state === "installed" && navigator.serviceWorker.controller) {
-              showToast(worker);
-            }
-          });
-        };
-
-        if (reg.waiting && navigator.serviceWorker.controller) showToast(reg.waiting);
-        trackInstalling(reg.installing);
-        reg.addEventListener("updatefound", () => trackInstalling(reg.installing));
-
-        // When the new SW takes control, reload once so the page runs new code.
-        let reloading = false;
-        navigator.serviceWorker.addEventListener("controllerchange", () => {
-          if (reloading) return;
-          reloading = true;
-          window.location.reload();
-        });
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("sw.js").catch(() => { /* ignore */ });
       });
     }
   </script>

@@ -23,14 +23,11 @@ const SHELL = [
 ];
 
 self.addEventListener("install", (e) => {
-  // Don't auto-skipWaiting — let the page show its "Reload to update" toast,
-  // and skipWaiting only on demand when the user clicks Reload. First installs
-  // (no existing controller) activate immediately anyway.
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));
-});
-
-self.addEventListener("message", (e) => {
-  if (e.data && e.data.type === "SKIP_WAITING") self.skipWaiting();
+  // skipWaiting + clients.claim() in activate together mean a new build takes
+  // over the next time the page is reloaded, with no user prompt.
+  e.waitUntil(
+    caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener("activate", (e) => {
