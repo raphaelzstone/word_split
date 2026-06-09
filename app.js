@@ -106,7 +106,10 @@ function fmtElapsed(sec) {
 
 // --- DOM + views ------------------------------------------------------------
 const $ = (sel) => document.querySelector(sel);
-const views = { menu: $("#view-menu"), game: $("#view-game"), results: $("#view-results") };
+const views = {
+  menu: $("#view-menu"), game: $("#view-game"),
+  results: $("#view-results"), board: $("#view-board"),
+};
 function showView(name) {
   for (const [k, el] of Object.entries(views)) el.hidden = k !== name;
   $("#home-btn").hidden = name === "menu";
@@ -115,12 +118,54 @@ function showView(name) {
 // --- Storage ----------------------------------------------------------------
 const storageKey = (mode) => `wordsplit:${mode}:${dateKey()}`;
 function loadResult(mode) {
-  try { return JSON.parse(localStorage.getItem(storageKey(mode)) || "null"); }
-  catch { return null; }
+  try {
+    const r = JSON.parse(localStorage.getItem(storageKey(mode)) || "null");
+    if (!r) return null;
+    // Discard stale saves whose shape doesn't match the current config (e.g.
+    // a previous version had a different round count). Better to let the
+    // player re-play today than to render bogus rows.
+    const expected = CONFIG[mode].rounds;
+    if (!Array.isArray(r.rows) || r.rows.length !== expected) {
+      localStorage.removeItem(storageKey(mode));
+      return null;
+    }
+    return r;
+  } catch { return null; }
 }
 function saveResult(mode, result) {
   try { localStorage.setItem(storageKey(mode), JSON.stringify(result)); }
   catch { /* storage unavailable — game still works */ }
+}
+
+// --- Streak -----------------------------------------------------------------
+// Count of consecutive days the player has finished at least one game. Stored
+// as { count, longest, lastDate }; the displayed "current" streak is computed
+// against today so a missed day shows 0 rather than a stale number.
+const STREAK_KEY = "wordsplit:streak";
+function loadStreakRaw() {
+  try { return JSON.parse(localStorage.getItem(STREAK_KEY) || "null"); }
+  catch { return null; }
+}
+function dateKeyOffset(days) {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return dateKey(d);
+}
+function currentStreak() {
+  const s = loadStreakRaw();
+  if (!s || !s.lastDate) return 0;
+  if (s.lastDate === dateKey() || s.lastDate === dateKeyOffset(1)) return s.count;
+  return 0;
+}
+function bumpStreak() {
+  const today = dateKey();
+  const yest = dateKeyOffset(1);
+  const s = loadStreakRaw() || { count: 0, longest: 0, lastDate: null };
+  if (s.lastDate === today) return;          // already counted today
+  s.count = s.lastDate === yest ? s.count + 1 : 1;
+  s.longest = Math.max(s.longest || 0, s.count);
+  s.lastDate = today;
+  try { localStorage.setItem(STREAK_KEY, JSON.stringify(s)); } catch {}
 }
 
 // --- Build today's puzzles --------------------------------------------------
@@ -238,8 +283,12 @@ function penalize() {
 }
 
 // Called on solve, time-out, or skip. Scores the current puzzle and advances.
+// Guarded against double-fire so a near-simultaneous (solve + tick timeout +
+// skip) can't ever push two results for the same round.
 function endPuzzle() {
+  if (!game.tickId) return;
   clearInterval(game.tickId);
+  game.tickId = null;
   const p = game.puzzles[game.idx];
   const sec = elapsedSec();
 
@@ -304,6 +353,14 @@ function finishGame() {
       p.type === "combos" ? `${p.frame}  =  ${p.answers.join(" ")}` : `${p.words[0]} / ${p.words[1]}`),
   };
   saveResult(game.mode, result);
+  bumpStreak();
+  // Best-effort leaderboard submission. Fire-and-forget so it can't slow the
+  // results screen; the local save above is the source of truth.
+  const user = window.WordSplitUser.getOrCreateUser();
+  window.Leaderboard?.submitScore?.({
+    userId: user.id, name: user.name,
+    date: result.date, mode: result.mode, score: result.score,
+  });
   renderResults(game.mode, result, false);
 }
 
@@ -464,25 +521,26 @@ function renderResults(mode, result, replay) {
     `<div>Today's answers:</div>` +
     result.reveal.map((rv, i) => `<div>${i + 1}. <span class="rv">${rv}</span></div>`).join("");
 
-  $("#copy-btn").onclick = () => copyResults(mode, result);
-  $("#copied-toast").hidden = true;
   showView("results");
 }
 
-function buildShareText(mode, result) {
-  const cfg = CONFIG[mode];
-  const lines = [`Word Split — ${cfg.name}`, result.date, `⭐ ${result.score} / ${cfg.rounds * cfg.points}`];
-  result.rows.forEach((r, i) => {
-    const mark = r.type === "combos"
-      ? `${r.found}/${r.total}`
-      : (r.solved ? `✓ ${fmtElapsed(r.sec)}` : "✕");
-    lines.push(`${NUM[i]} ${mark} · ${r.points} pts`);
-  });
+// Compact share text covering whichever modes the player has played today.
+// Format:
+//   Word Split — 2026-06-08
+//   Combos: 1200/1500
+//   Forks: 700/1000
+function buildMenuShareText() {
+  const lines = [`Word Split — ${dateKey()}`];
+  for (const mode of ["combos", "forks"]) {
+    const res = loadResult(mode);
+    if (!res) continue;
+    const max = CONFIG[mode].rounds * CONFIG[mode].points;
+    lines.push(`${CONFIG[mode].name}: ${res.score}/${max}`);
+  }
   return lines.join("\n");
 }
 
-async function copyResults(mode, result) {
-  const text = buildShareText(mode, result);
+async function copyToClipboard(text) {
   try {
     await navigator.clipboard.writeText(text);
   } catch {
@@ -490,9 +548,6 @@ async function copyResults(mode, result) {
     ta.value = text; document.body.appendChild(ta);
     ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
   }
-  const toast = $("#copied-toast");
-  toast.hidden = false;
-  setTimeout(() => (toast.hidden = true), 2000);
 }
 
 /* ===========================================================================
@@ -500,11 +555,105 @@ async function copyResults(mode, result) {
  * ========================================================================= */
 function refreshMenu() {
   $("#date-label").textContent = dateKey();
+  const user = window.WordSplitUser.getOrCreateUser();
+  $("#player-name").textContent = user.name;
+  const streak = currentStreak();
+  const streakEl = $("#streak");
+  streakEl.textContent = streak >= 1 ? `🔥 ${streak} day${streak === 1 ? "" : "s"}` : "";
+  streakEl.hidden = streak < 1;
+  let anyPlayed = false;
   for (const mode of ["combos", "forks"]) {
     const res = loadResult(mode);
     const max = CONFIG[mode].rounds * CONFIG[mode].points;
     $(`#status-${mode}`).textContent = res ? `Played today · ${res.score} / ${max}` : "Not played today";
+    if (res) anyPlayed = true;
   }
+  $("#menu-share-btn").hidden = !anyPlayed;
+  $("#menu-copied-toast").hidden = true;
+}
+
+function promptForName() {
+  const cur = window.WordSplitUser.getOrCreateUser().name;
+  const next = window.prompt("Pick a username (or leave blank to randomize):", cur);
+  if (next === null) return;                                  // cancelled
+  const name = next.trim() ? next : window.WordSplitUser.randomBirdName();
+  window.WordSplitUser.setUserName(name);
+  refreshMenu();
+}
+
+/* ===========================================================================
+ * Leaderboard view
+ *
+ * Stacks four panels: Today's Combos, Today's Forks, Yesterday's Combos,
+ * Yesterday's Forks. Reads are best-effort — Firestore failures (or no config
+ * at all) just render an empty / message panel rather than throwing.
+ * ========================================================================= */
+const BOARD_DEFAULT_VISIBLE = 5;
+
+function renderBoardPanel(title, rows, mode, myId) {
+  if (!rows) {
+    return `<div class="board-panel"><h3>${title}</h3><div class="board-empty">—</div></div>`;
+  }
+  if (!rows.length) {
+    return `<div class="board-panel"><h3>${title}</h3><div class="board-empty">No scores yet.</div></div>`;
+  }
+  const max = CONFIG[mode].rounds * CONFIG[mode].points;
+  // Show top N by default; rows past N render with a class that's hidden until
+  // the user clicks "Show all". If your row is past the cutoff, auto-expand so
+  // you can see your own placement without having to fish for it.
+  const myRank = rows.findIndex((r) => r.userId === myId);
+  const autoExpand = myRank >= BOARD_DEFAULT_VISIBLE;
+  const lis = rows.map((r, i) => {
+    const me = r.userId === myId ? " me" : "";
+    const extra = i >= BOARD_DEFAULT_VISIBLE ? " board-row-extra" : "";
+    const name = (r.name || "—").replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+    return `<li class="board-row${me}${extra}">` +
+           `<span class="board-rank">${i + 1}</span>` +
+           `<span class="board-name">${name}</span>` +
+           `<span class="board-score">${r.score} <span class="board-max">/ ${max}</span></span>` +
+           `</li>`;
+  }).join("");
+  const extraCount = Math.max(0, rows.length - BOARD_DEFAULT_VISIBLE);
+  const toggle = extraCount > 0
+    ? `<button class="board-expand" data-total="${rows.length}">Show all (${rows.length}) ▼</button>`
+    : "";
+  const cls = autoExpand ? "board-panel expanded" : "board-panel";
+  return `<div class="${cls}"><h3>${title}</h3><ol class="board-list">${lis}</ol>${toggle}</div>`;
+}
+
+// One delegated click handler for every expand button across all four panels.
+function wireBoardExpand() {
+  $("#board-content").addEventListener("click", (e) => {
+    const btn = e.target.closest(".board-expand");
+    if (!btn) return;
+    const panel = btn.closest(".board-panel");
+    const open = panel.classList.toggle("expanded");
+    btn.textContent = open ? "Show less ▲" : `Show all (${btn.dataset.total}) ▼`;
+  });
+}
+
+async function showLeaderboard() {
+  showView("board");
+  const root = $("#board-content");
+  if (!window.Leaderboard || !window.Leaderboard.configured) {
+    root.innerHTML = `
+      <div class="board-empty board-empty-big">
+        Leaderboard not yet configured.<br>
+        <small>See README → Firebase setup.</small>
+      </div>`;
+    return;
+  }
+  root.innerHTML = `<div class="board-empty board-empty-big">Loading…</div>`;
+  const myId = window.WordSplitUser.getOrCreateUser().id;
+  const [today, yest] = await Promise.all([
+    window.Leaderboard.fetchBoard(dateKeyOffset(0)),
+    window.Leaderboard.fetchBoard(dateKeyOffset(1)),
+  ]);
+  root.innerHTML =
+    renderBoardPanel("Today · Combos",     today?.combos, "combos", myId) +
+    renderBoardPanel("Today · Forks",      today?.forks,  "forks",  myId) +
+    renderBoardPanel("Yesterday · Combos", yest?.combos,  "combos", myId) +
+    renderBoardPanel("Yesterday · Forks",  yest?.forks,   "forks",  myId);
 }
 
 function stopGame() {
@@ -512,12 +661,25 @@ function stopGame() {
 }
 
 function init() {
+  // Make sure a user identity exists before any view renders.
+  window.WordSplitUser.getOrCreateUser();
+
   refreshMenu();
   document.querySelectorAll(".mode-card").forEach((card) =>
     card.addEventListener("click", () => startGame(card.dataset.mode)));
   $("#home-btn").addEventListener("click", () => { stopGame(); refreshMenu(); showView("menu"); });
   $("#results-menu-btn").addEventListener("click", () => { refreshMenu(); showView("menu"); });
+  $("#board-menu-btn").addEventListener("click", () => { refreshMenu(); showView("menu"); });
   $("#skip-btn").addEventListener("click", () => { if (game) endPuzzle(); });
+  $("#name-btn").addEventListener("click", promptForName);
+  $("#menu-board-btn").addEventListener("click", showLeaderboard);
+  wireBoardExpand();
+  $("#menu-share-btn").addEventListener("click", async () => {
+    await copyToClipboard(buildMenuShareText());
+    const t = $("#menu-copied-toast");
+    t.hidden = false;
+    setTimeout(() => (t.hidden = true), 2000);
+  });
   showView("menu");
 }
 

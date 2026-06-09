@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#b8cab0" />
   <title>Word Split</title>
+  <link rel="icon" type="image/svg+xml" href="icon.svg" />
+  <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -16,6 +19,10 @@
 
     <!-- MENU ------------------------------------------------------------- -->
     <section id="view-menu" class="view">
+      <p class="who">
+        Playing as <button id="name-btn" class="name-btn" title="Change name"><span id="player-name">…</span> <span class="pencil">✎</span></button>
+        <span id="streak" class="streak" hidden></span>
+      </p>
       <p class="tagline">Two word puzzles. A fresh set every day.</p>
       <div class="menu-cards">
         <button class="mode-card" data-mode="combos">
@@ -31,6 +38,11 @@
           <span class="mode-status" id="status-forks"></span>
         </button>
       </div>
+      <div class="menu-actions">
+        <button id="menu-share-btn" class="primary-btn" hidden>Copy results</button>
+        <button id="menu-board-btn" class="ghost-btn">🏆 Leaderboard</button>
+      </div>
+      <p class="copied-toast" id="menu-copied-toast" hidden>Copied to clipboard!</p>
     </section>
 
     <!-- GAME ------------------------------------------------------------- -->
@@ -52,14 +64,70 @@
       <ul class="result-rows" id="result-rows"></ul>
       <div id="reveal-block" class="reveal-block"></div>
       <div class="result-actions">
-        <button id="copy-btn" class="primary-btn">Copy results</button>
-        <button id="results-menu-btn" class="ghost-btn">Back to menu</button>
+        <button id="results-menu-btn" class="primary-btn">Back to menu</button>
       </div>
-      <p class="copied-toast" id="copied-toast" hidden>Copied to clipboard!</p>
+    </section>
+
+    <!-- LEADERBOARD ------------------------------------------------------ -->
+    <section id="view-board" class="view" hidden>
+      <h2 class="board-title">Leaderboard</h2>
+      <div id="board-content" class="board-content"></div>
+      <div class="result-actions">
+        <button id="board-menu-btn" class="ghost-btn">Back to menu</button>
+      </div>
     </section>
   </main>
 
+  <!-- Update toast: shown when a new service-worker version is waiting --->
+  <div id="update-toast" class="update-toast" hidden>
+    <span>New version available</span>
+    <button id="update-btn">Reload</button>
+  </div>
+
   <script src="puzzles.js"></script>
+  <script src="birds.js"></script>
+  <script src="firebase-config.js"></script>
+  <script type="module" src="leaderboard.js"></script>
   <script src="app.js"></script>
+  <script>
+    /* Register the service worker (PWA install + offline shell). When a new
+     * version has finished installing AND there's an existing controller (so
+     * it's a real update, not a first install), surface a small "Reload" toast
+     * — clicking it tells the new SW to skip-waiting, which fires
+     * `controllerchange` and reloads the page on the new build. */
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", async () => {
+        const reg = await navigator.serviceWorker.register("sw.js").catch(() => null);
+        if (!reg) return;
+
+        const showToast = (worker) => {
+          const toast = document.getElementById("update-toast");
+          toast.hidden = false;
+          document.getElementById("update-btn").onclick = () =>
+            worker.postMessage({ type: "SKIP_WAITING" });
+        };
+        const trackInstalling = (worker) => {
+          if (!worker) return;
+          worker.addEventListener("statechange", () => {
+            if (worker.state === "installed" && navigator.serviceWorker.controller) {
+              showToast(worker);
+            }
+          });
+        };
+
+        if (reg.waiting && navigator.serviceWorker.controller) showToast(reg.waiting);
+        trackInstalling(reg.installing);
+        reg.addEventListener("updatefound", () => trackInstalling(reg.installing));
+
+        // When the new SW takes control, reload once so the page runs new code.
+        let reloading = false;
+        navigator.serviceWorker.addEventListener("controllerchange", () => {
+          if (reloading) return;
+          reloading = true;
+          window.location.reload();
+        });
+      });
+    }
+  </script>
 </body>
 </html>
