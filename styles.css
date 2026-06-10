@@ -376,6 +376,13 @@ body {
   color: var(--muted);
   font-weight: 700;
 }
+.board-avg {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+  color: var(--text);
+  margin-left: 6px;
+}
 .board-list { list-style: none; padding: 0; margin: 0; }
 .board-row.board-row-extra { display: none; }
 .board-panel.expanded .board-row.board-row-extra { display: grid; }

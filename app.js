@@ -598,6 +598,8 @@ function renderBoardPanel(title, rows, mode, myId) {
     return `<div class="board-panel"><h3>${title}</h3><div class="board-empty">No scores yet.</div></div>`;
   }
   const max = CONFIG[mode].rounds * CONFIG[mode].points;
+  const avg = Math.round(rows.reduce((s, r) => s + r.score, 0) / rows.length);
+  const titleHTML = `${title} <span class="board-avg">avg ${avg}</span>`;
   // Show top N by default; rows past N render with a class that's hidden until
   // the user clicks "Show all". If your row is past the cutoff, auto-expand so
   // you can see your own placement without having to fish for it.
@@ -618,7 +620,7 @@ function renderBoardPanel(title, rows, mode, myId) {
     ? `<button class="board-expand" data-total="${rows.length}">Show all (${rows.length}) ▼</button>`
     : "";
   const cls = autoExpand ? "board-panel expanded" : "board-panel";
-  return `<div class="${cls}"><h3>${title}</h3><ol class="board-list">${lis}</ol>${toggle}</div>`;
+  return `<div class="${cls}"><h3>${titleHTML}</h3><ol class="board-list">${lis}</ol>${toggle}</div>`;
 }
 
 // One delegated click handler for every expand button across all four panels.
